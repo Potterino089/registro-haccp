@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Registro Tracciabilità - Marco</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background-color: #F2F7F4;
+  margin: 0;
+  padding: 20px;
+}
+
+h1 {
+  text-align: center;
+  color: #3e4e46;
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+button {
+  background-color: #6FAF8F;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #5a9b7c;
+}
+
+input, select {
+  width: 100%;
+  padding: 8px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Registro Tracciabilità Preparati</h1>
+
+<div class="card">
+  <h3>Nuovo Lotto</h3>
+  <input id="ingredienteNome" placeholder="Nome ingrediente">
+  <input id="lottoFornitore" placeholder="Codice lotto fornitore">
+  <button id="btnLotto">Salva Lotto</button>
+</div>
+
+<div class="card">
+  <h3>Nuova Preparazione</h3>
+  <input id="nomePreparato" placeholder="Nome preparato">
+  <input id="operatore" placeholder="Operatore">
+  <select id="lottoSelect"></select>
+  <button id="btnPreparazione">Salva Preparazione</button>
+</div>
+
+<div class="card">
+  <h3>Cerca Lotto</h3>
+  <input id="cercaLotto" placeholder="Inserisci codice lotto">
+  <button id="btnCerca">Cerca</button>
+  <pre id="risultati"></pre>
+</div>
+
+<div class="card">
+  <h3>Report Giornaliero</h3>
+  <input type="date" id="dataReport">
+  <button id="btnReport">Genera Report</button>
+</div>
+
+<script type="module">
+
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+// 🔴 INSERISCI SOLO LA TUA CHIAVE QUI
+const supabaseUrl = "https://yuzqjmrjehmucqfapcyg.supabase.co";
+const supabaseKey = "sb_publishable_WlXWtLgHu35jCw0tSpcQmQ_1oWYLnva";
+
+const client = createClient(supabaseUrl, supabaseKey);
+
+// --- Carica lotti attivi ---
+async function caricaLotti() {
+  const { data, error } = await client
+    .from('lotti')
+    .select('id, lotto_fornitore');
+
+  if (error) {
+    console.log(error);
+    return;
+  }
+
+  const select = document.getElementById("lottoSelect");
+  select.innerHTML = "";
+
+  data.forEach(lotto => {
+    const option = document.createElement("option");
+    option.value = lotto.id;
+    option.textContent = lotto.lotto_fornitore;
+    select.appendChild(option);
+  });
+}
+// --- Salva lotto ---
+document.getElementById("btnLotto").addEventListener("click", async () => {
+
+  const nome = document.getElementById("ingredienteNome").value;
+  const lotto = document.getElementById("lottoFornitore").value;
+
+  const { data: ingrediente, error: errIng } = await client
+    .from('ingredienti')
+    .insert([{ nome }])
+    .select()
+    .single();
+
+  if (errIng) {
+    alert("Errore ingrediente");
+    console.log(errIng);
+    return;
+  }
+
+  const { error } = await client
+    .from('lotti')
+    .insert([{ ingrediente_id: ingrediente.id, lotto_fornitore: lotto }]);
+
+  if (error) {
+    alert("Errore lotto");
+    console.log(error);
+    return;
+  }
+
+  alert("Lotto salvato!");
+  caricaLotti();
+});
+
+// --- Salva preparazione ---
+document.getElementById("btnPreparazione").addEventListener("click", async () => {
+
+  const nome = document.getElementById("nomePreparato").value;
+  const operatore = document.getElementById("operatore").value;
+  const lottoId = document.getElementById("lottoSelect").value;
+
+  const { data: prep, error: errPrep } = await client
+    .from('preparazioni')
+    .insert([{ nome_preparato: nome, operatore }])
+    .select()
+    .single();
+
+  if (errPrep) {
+    alert("Errore preparazione");
+    console.log(errPrep);
+    return;
+  }
+
+  await client
+    .from('preparazione_lotti')
+    .insert([{ preparazione_id: prep.id, lotto_id: lottoId }]);
+
+  alert("Preparazione salvata!");
+});
+
+// --- Ricerca lotto ---
+document.getElementById("btnCerca").addEventListener("click", async () => {
+
+  const codice = document.getElementById("cercaLotto").value;
+
+  const { data } = await client
+    .from('lotti')
+    .select(`
+      lotto_fornitore,
+      preparazione_lotti (
+        preparazioni (
+          nome_preparato,
+          data,
+          operatore
+        )
+      )
+    `)
+    .eq('lotto_fornitore', codice);
+
+const risultatiDiv = document.getElementById("risultati");
+risultatiDiv.innerHTML = "";
+
+if (!data || data.length === 0) {
+  risultatiDiv.innerHTML = "Nessuna preparazione trovata per questo lotto.";
+  return;
+}
+
+const lotto = data[0];
+
+let html = `<h4>Lotto: ${lotto.lotto_fornitore}</h4>`;
+html += "<strong>Utilizzato nelle seguenti preparazioni:</strong><br><br>";
+
+lotto.preparazione_lotti.forEach(rel => {
+  const prep = rel.preparazioni;
+
+  const dataFormattata = new Date(prep.data).toLocaleDateString("it-IT");
+
+  html += `
+    • <strong>${prep.nome_preparato}</strong><br>
+      Operatore: ${prep.operatore}<br>
+      Data: ${dataFormattata}<br><br>
+  `;
+});
+
+risultatiDiv.innerHTML = html;
+});
+
+document.getElementById("btnReport").addEventListener("click", async () => {
+
+  const dataSelezionata = document.getElementById("dataReport").value;
+
+  if (!dataSelezionata) {
+    alert("Seleziona una data");
+    return;
+  }
+
+  const inizio = dataSelezionata + "T00:00:00";
+  const fine = dataSelezionata + "T23:59:59";
+
+  const { data, error } = await client
+    .from('preparazioni')
+    .select(`
+      id,
+      nome_preparato,
+      operatore,
+      data,
+      preparazione_lotti (
+        lotti (
+          lotto_fornitore,
+          ingredienti ( nome )
+        )
+      )
+    `)
+    .gte('data', inizio)
+    .lte('data', fine);
+
+  if (error) {
+    console.log(error);
+    alert("Errore generazione report");
+    return;
+  }
+
+  generaStampaReport(data, dataSelezionata);
+});
+
+
+function generaStampaReport(preparazioni, data) {
+
+ let contenuto = `
+  <div style="text-align:center;">
+    <img src="${window.location.origin}/logo.svg" style="height:80px; margin-bottom:10px;">
+    <h2>Report Giornaliero HACCP</h2>
+    <h3>Data: ${new Date(data).toLocaleDateString("it-IT")}</h3>
+  </div>
+  <hr>
+`;
+
+  if (preparazioni.length === 0) {
+    contenuto += "<p>Nessuna preparazione registrata.</p>";
+  }
+
+  preparazioni.forEach(prep => {
+
+    contenuto += `
+      <h4>Preparazione: ${prep.nome_preparato}</h4>
+      <p>Operatore: ${prep.operatore}</p>
+      <p>Lotti utilizzati:</p>
+      <ul>
+    `;
+
+    prep.preparazione_lotti.forEach(rel => {
+      contenuto += `
+        <li>
+          ${rel.lotti.ingredienti.nome} → 
+          ${rel.lotti.lotto_fornitore}
+        </li>
+      `;
+    });
+
+    contenuto += "</ul><hr>";
+  });
+
+  const finestra = window.open("", "", "width=800,height=600");
+  finestra.document.write(`
+    <html>
+      <head>
+        <title>Report HACCP</title>
+        <style>
+          body { font-family: Arial; padding: 20px; }
+          h2 { text-align: center; }
+          hr { margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        ${contenuto}
+      </body>
+    </html>
+  `);
+
+  finestra.document.close();
+  finestra.print();
+}
+
+caricaLotti();
+
+</script>
+
+</body>
+</html>
