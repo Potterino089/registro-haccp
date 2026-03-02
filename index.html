@@ -64,7 +64,7 @@ input, select {
   <h3>Nuova Preparazione</h3>
   <input id="nomePreparato" placeholder="Nome preparato">
   <input id="operatore" placeholder="Operatore">
-  <select id="lottoSelect"></select>
+  <div id="ingredientiContainer"></div>
   <button id="btnPreparazione">Salva Preparazione</button>
 </div>
 
@@ -92,27 +92,34 @@ const supabaseKey = "sb_publishable_WlXWtLgHu35jCw0tSpcQmQ_1oWYLnva";
 const client = createClient(supabaseUrl, supabaseKey);
 
 // --- Carica lotti attivi ---
-async function caricaLotti() {
+async function caricaIngredienti() {
+
   const { data, error } = await client
-    .from('lotti')
-    .select('id, lotto_fornitore');
+    .from('ingredienti')
+    .select('id, nome');
 
   if (error) {
     console.log(error);
     return;
   }
 
-  const select = document.getElementById("lottoSelect");
-  select.innerHTML = "";
+  const container = document.getElementById("ingredientiContainer");
+  container.innerHTML = "";
 
-  data.forEach(lotto => {
-    const option = document.createElement("option");
-    option.value = lotto.id;
-    option.textContent = lotto.lotto_fornitore;
-    select.appendChild(option);
+  data.forEach(ing => {
+
+    const div = document.createElement("div");
+
+    div.innerHTML = `
+      <label>
+        <input type="checkbox" value="${ing.id}">
+        ${ing.nome}
+      </label>
+    `;
+
+    container.appendChild(div);
   });
-}
-// --- Salva lotto ---
+}// --- Salva lotto ---
 document.getElementById("btnLotto").addEventListener("click", async () => {
 
   const nome = document.getElementById("ingredienteNome").value;
@@ -141,7 +148,7 @@ document.getElementById("btnLotto").addEventListener("click", async () => {
   }
 
   alert("Lotto salvato!");
-  caricaLotti();
+  caricaIngredienti();
 });
 
 // --- Salva preparazione ---
@@ -149,7 +156,13 @@ document.getElementById("btnPreparazione").addEventListener("click", async () =>
 
   const nome = document.getElementById("nomePreparato").value;
   const operatore = document.getElementById("operatore").value;
-  const lottoId = document.getElementById("lottoSelect").value;
+
+  const checkboxes = document.querySelectorAll("#ingredientiContainer input:checked");
+
+  if (checkboxes.length === 0) {
+    alert("Seleziona almeno un ingrediente");
+    return;
+  }
 
   const { data: prep, error: errPrep } = await client
     .from('preparazioni')
@@ -163,13 +176,30 @@ document.getElementById("btnPreparazione").addEventListener("click", async () =>
     return;
   }
 
-  await client
-    .from('preparazione_lotti')
-    .insert([{ preparazione_id: prep.id, lotto_id: lottoId }]);
+  for (const checkbox of checkboxes) {
+
+    const ingredienteId = checkbox.value;
+
+    const { data: lotto } = await client
+      .from('lotti')
+      .select('id')
+      .eq('ingrediente_id', ingredienteId)
+      .order('id', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (lotto) {
+      await client
+        .from('preparazione_lotti')
+        .insert([{
+          preparazione_id: prep.id,
+          lotto_id: lotto.id
+        }]);
+    }
+  }
 
   alert("Preparazione salvata!");
 });
-
 // --- Ricerca lotto ---
 document.getElementById("btnCerca").addEventListener("click", async () => {
 
@@ -313,7 +343,8 @@ function generaStampaReport(preparazioni, data) {
   finestra.print();
 }
 
-caricaLotti();
+
+caricaIngredienti();
 
 </script>
 
